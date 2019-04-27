@@ -1,0 +1,82 @@
+# Abdul Rafey CS112-Final Project #
+
+##Making arrangements for the data##
+library(foreign)      # here installing the library and loading the data
+UNdata = read.dta("~/Downloads/peace.dta")
+
+# the dependent variable as we mentioned in the memo = pbs2s3
+# where as the independent variables can be the following --> pbs2s3 wartype logcost wardur factnum factnum2 trnsfcap develop exp decade treaty un2 untype4 cluster
+# the treatment introduced = untype4 which is 'peacekeeping'
+
+ind_variable = c('wartype','logdead','wardur','factnum','factnum2','trnsfcap','develop','exp','decade','treaty','UNop4')
+
+UNdata = UNdata[-c(19,47),]     #here we make a new dataframe
+
+# now collecting the counterfactual data
+antidata = function(x) 1-x
+counter = UNdata[-UNdata$UNop4]
+counter = cbind(UNdata[,-which(names(UNdata) == 'UNop4')],
+           'UNop4'=sapply(UNdata$UNop4, antidata))
+
+library(Matching)     # running the matching library 
+
+# now we will attain the glm model for logit regression of the provided data
+first_set = glm(pbs2s3 ~ wartype + logcost + wardur + factnum + factnum2 + trnsfcap + develop + exp + decade + treaty + untype4, data=UNdata, family=binomial)
+
+summary(first_set)
+coef(first_set)      #obtaining the coefficients
+
+# similarly we will get the glm model for logit regression of the counterfactual
+sec_set = glm(pbs2s3 ~ wartype + logcost + wardur + factnum + factnum2 + trnsfcap + develop + exp + decade + treaty + untype4 + I(wardur*untype4), data=UNdata, family=binomial)
+summary(sec_set)
+
+#Now we will run Genetic Matching for the propensity scores and the covariates 
+propmodel <- glm(untype4 ~ wartype + logcost + wardur + factnum + factnum2 + trnsfcap + treaty + develop + exp + decade, family = binomial, data = UNdata) 
+propscores <- propmodel$fitted.values         #propensity score is calculated
+
+UNdata$propscores <- propscores 
+UNdata[ , "propensity_scores"] <- propscores       #now we add them to the UNdata  
+#getting the covariates and the propensity score
+co_vars <- c("wartype" , "logcost" , "wardur" , "factnum" , "factnum2" , "trnsfcap" , "treaty" , "develop" , "exp" , "decade", "propensity.score")
+
+
+#making a new dataframe without propensity scores
+UNdata_new <- UNdata
+#for balance matrix
+new_co_vars <- c("wartype" , "logcost" , "wardur" , "factnum" , "factnum2" , "trnsfcap" , "treaty" , "develop" , "exp" , "decade")
+X_bal <- UNdata_new[ , new_co_vars]
+
+
+#now preparing for GenMatch 
+X <- UNdata_new[ , new_co_vars]
+Tr <- UNdata_new$untype4
+Y <- UNdata_new$pbs2s3
+
+#using the first scalar M = 2 to run GenMatch 
+
+gen_out = GenMatch(Tr = UNdata_new$untype4, X=X, M = 2, estimand='ATT')
+gmatch = Match(Y=UNdata_new$pbs2s3, Tr=UNdata_new$untype4, X=X, M = 2, estimand='ATT',
+               Weight.matrix=gen_out)
+summary(gmatch)
+
+#now for M = 2 we run the Match Balance
+
+MatchBalance(UNdata_new$untype4 ~  UNdata_new$wartype + UNdata_new$logcost + UNdata_new$wardur + UNdata_new$factnum + UNdata_new$factnum2 + UNdata_new$trnsfcap + UNdata_new$treaty + UNdata_new$develop + UNdata_new$exp + UNdata_new$decade, nboots = 0, match.out = gmatch)
+
+#now using the scalar M = 5 to run GenMatch 
+
+gen_out = GenMatch(Tr = UNdata_new$untype4, X=X, M = 5, estimand='ATT')
+gmatch = Match(Y=UNdata_new$pbs2s3, Tr=UNdata_new$untype4, X=X, M = 5, estimand='ATT', 
+               Weight.matrix=gen_out)
+summary(gmatch)
+
+#now for M = 5 we run the Match Balance
+
+MatchBalance(UNdata_new$untype4 ~  UNdata_new$wartype + UNdata_new$logcost + UNdata_new$wardur + UNdata_new$factnum + UNdata_new$factnum2 + UNdata_new$trnsfcap + UNdata_new$treaty + UNdata_new$develop + UNdata_new$exp + UNdata_new$decade, nboots = 0, match.out = gmatch)
+
+
+#####--------------------------------------------------------------------------------------------------------------------#####
+
+
+
+
